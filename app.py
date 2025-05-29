@@ -1,5 +1,7 @@
 import chainlit as cl
-import aiohttp
+from rag_service import RAGService
+
+rag_service = RAGService()
 
 @cl.on_chat_start
 async def main():
@@ -7,13 +9,8 @@ async def main():
 
 @cl.on_message
 async def message_handler(message: cl.Message):
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            "http://localhost:5000/api/v1/documents/query",
-            json={"query": message.content}
-        ) as response:
-            if response.status == 200:
-                data = await response.json()
-                await cl.Message(content=data["answer"]).send()
-            else:
-                await cl.Message(content="Sorry, an error occurred while processing your request").send()
+    try:
+        response = await rag_service.query_document_with_openai(message.content)
+        await cl.Message(content=response["answer"]).send()
+    except Exception as e:
+        await cl.Message(content="Sorry, an error occurred while processing your request").send()
