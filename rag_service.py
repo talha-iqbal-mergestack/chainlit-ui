@@ -5,7 +5,6 @@ from langchain_community.chat_models import ChatOpenAI
 from pinecone import Pinecone
 from langchain_openai import OpenAIEmbeddings
 from openai import OpenAI
-import numpy as np
 import os
 
 class RAGService:
@@ -16,7 +15,7 @@ class RAGService:
             api_key=os.getenv("OPENAI_API_KEY"),
         )
 
-    async def query_document(self, query: str) -> dict:
+    async def query_document_with_langchain(self, query: str) -> dict:
         # Initialize retriever directly from the existing index
         index = self.pinecone_client.Index(self.index_name)
         
@@ -29,17 +28,17 @@ class RAGService:
 
         retriever = vectorstore.as_retriever()
         
-        # Define HR assistant prompt template
+        # Define assistant prompt template
         prompt_template = PromptTemplate(
             template="""
-            You are an HR assistant. Answer the question using the provided context.
-            If the answer includes a table, preserve its structure using markdown table formatting.
-
-            Context:
+            Answer the question based only on the following context:
             {context}
-
-            Question: {question}
-            Answer:
+            Answer the question based on the above context: {question}.
+            Provide a detailed answer.
+            Don’t justify your answers.
+            Don’t give information not mentioned in the CONTEXT INFORMATION.
+            Do not say "according to the context" or "mentioned in the context" or similar.
+            If the answer includes a table, preserve its structure using markdown table formatting.
             """,
             input_variables=["context", "question"]
         )
@@ -86,7 +85,7 @@ class RAGService:
         query_response = index.query(
             vector=query_embedding,
             top_k=4,
-            namespace="pdfplumber",
+            namespace="fitz",
             include_metadata=True
         )
 
@@ -104,14 +103,16 @@ class RAGService:
 
         # Prepare prompt with context
         context_str = "\n\n".join(contexts)
-        prompt = f"""You are an HR assistant. Answer the question using the provided context.
-        If the answer includes a table, preserve its structure using markdown table formatting.
-
-        Context:
+        prompt=f"""
+        Answer the question based only on the following context:
         {context_str}
-
-        Question: {query}
-        Answer:"""
+        Answer the question based on the above context: {query}.
+        Provide a detailed answer.
+        Don’t justify your answers.
+        Don’t give information not mentioned in the CONTEXT INFORMATION.
+        Do not say "according to the context" or "mentioned in the context" or similar.
+        If the answer includes a table, preserve its structure using markdown table formatting.
+        """
 
         # Get completion from OpenAI
         chat_completion = openai_client.chat.completions.create(
@@ -119,7 +120,8 @@ class RAGService:
             messages=[
                 {"role": "system", "content": "You are an HR assistant. Provide accurate answers based on the given context."},
                 {"role": "user", "content": prompt}
-            ]
+            ],
+            # stream=True
         )
 
         # Print scores with formatted output
@@ -127,6 +129,14 @@ class RAGService:
         print("-----------------")
         for source in sources:
             print(f"Score: {source['score']:.4f}")
+
+        # Stream the response
+        # full_response = ""
+        # async for chunk in chat_completion:
+        #     if chunk.choices[0].delta.content is not None:
+        #         full_response += chunk.choices[0].delta.content
+        #         yield chunk.choices[0].delta.content
+
 
         return {
             "answer": chat_completion.choices[0].message.content,
