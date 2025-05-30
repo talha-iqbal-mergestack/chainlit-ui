@@ -4,7 +4,8 @@ from langchain.chains import RetrievalQA
 from langchain_community.chat_models import ChatOpenAI
 from pinecone import Pinecone
 from langchain_openai import OpenAIEmbeddings
-from openai import OpenAI
+from openai import AsyncOpenAI
+import chainlit as cl
 import os
 
 class RAGService:
@@ -69,12 +70,12 @@ class RAGService:
             ]
         }
 
-    async def query_document_with_openai(self, query: str) -> dict:
+    async def query_document_with_openai(self, query: str, message_history: list = []) -> dict:
         # Initialize OpenAI client
-        openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         
         # Get embeddings for the query using OpenAI
-        embedding_response = openai_client.embeddings.create(
+        embedding_response = await openai_client.embeddings.create(
             model="text-embedding-ada-002",
             input=query
         )
@@ -114,14 +115,15 @@ class RAGService:
         If the answer includes a table, preserve its structure using markdown table formatting.
         """
 
+        # Modify the chat completion call to include message history
+        messages = message_history
+        messages.append({"role": "user", "content": prompt})
+
         # Get completion from OpenAI
-        chat_completion = openai_client.chat.completions.create(
+        stream = await openai_client.chat.completions.create(
             model="gpt-4.1",
-            messages=[
-                {"role": "system", "content": "You are an HR assistant. Provide accurate answers based on the given context."},
-                {"role": "user", "content": prompt}
-            ],
-            # stream=True
+            messages=messages,
+            stream=True
         )
 
         # Print scores with formatted output
@@ -130,15 +132,4 @@ class RAGService:
         for source in sources:
             print(f"Score: {source['score']:.4f}")
 
-        # Stream the response
-        # full_response = ""
-        # async for chunk in chat_completion:
-        #     if chunk.choices[0].delta.content is not None:
-        #         full_response += chunk.choices[0].delta.content
-        #         yield chunk.choices[0].delta.content
-
-
-        return {
-            "answer": chat_completion.choices[0].message.content,
-            "sources": sources
-        }
+        return stream
